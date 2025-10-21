@@ -1,7 +1,23 @@
 import subprocess
+import os
+from google.genai import types
+
+# need to see how to best handle args from LLM as an optional input
+schema_run_python_file = types.FunctionDeclaration(
+    name="run_python_file",
+    description="Gets the content of a specified file, constrained to the working directory.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to execute, relative to the working directory.",
+            ),
+        },
+    ),
+)
 
 def run_python_file(working_directory, file_path, args=[]):
-    import os
 
     target_file = os.path.join(working_directory, file_path)
     abs_target_file = os.path.abspath(target_file)

@@ -1,16 +1,23 @@
 
+import os
 from config import MAX_CHARS
+from google.genai import types
 
-'''
-Now that we have a function that can get the contents of a directory, we need one that can get the contents of a file. 
-Again, we'll just return the file contents as a string, or perhaps an error string if something went wrong.
-
-As always, we'll safely scope the function to a specific working directory.
-'''
+schema_get_file_content = types.FunctionDeclaration(
+    name="get_file_content",
+    description="Gets the content of a specified file, constrained to the working directory.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to read, relative to the working directory.",
+            ),
+        },
+    ),
+)
 
 def get_file_content(working_directory, file_path):
-    import os
-
     target_file = os.path.join(working_directory, file_path)
     abs_target_file = os.path.abspath(target_file)
 
