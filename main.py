@@ -24,6 +24,14 @@ available_functions = types.Tool(
     ]
 )
 
+# Function map
+FUNCTION_MAP = {
+    "get_files_info": get_files_info,
+    "get_file_content": get_file_content,
+    "write_file": write_file,
+    "run_python_file": run_python_file,
+}
+
 # system prompt
 system_prompt = """
 You are a helpful AI coding agent.
@@ -72,7 +80,13 @@ def main():
     if response.function_calls:
         for function_call_part in response.function_calls:
             print(f"Function call representation: {repr(function_call_part)}")
-            print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+
+            function_call_result = call_function(function_call_part, verbose=verbose)
+            if not function_call_result.parts[0].function_response.response:
+                raise Exception("Fatal - No function response received.")
+            if function_call_result.parts[0].function_response.response and verbose:
+                print(f"-> {function_call_result.parts[0].function_response.response}")
+
             if function_call_part.name == "get_files_info":
                 raw_dir = function_call_part.args.get("directory")
                 directory = raw_dir.strip() if isinstance(raw_dir, str) and raw_dir.strip() else "."
@@ -83,6 +97,53 @@ def main():
                 print(f"Function response:\n{function_response}\n")
     if not response.function_calls:
         print(response.text)
+
+def call_function(function_call_part, verbose=False):
+    if verbose:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+    if not verbose:
+        print(f" - Calling function: {function_call_part.name}")
+
+    try:
+        called_function = FUNCTION_MAP[function_call_part.name]
+    except KeyError:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"error": f"Unknown function: {function_call_part.name}"},
+                )
+            ],
+        )
+
+    try:
+        function_response = called_function(
+            working_directory=os.path.abspath(BASE_PATH),
+            **function_call_part.args
+        )
+    except Exception as e:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_call_part.name,
+                    response={"error": str(e)},
+                )
+            ],
+        )
+    
+    return types.Content(
+        role="tool",
+        parts=[
+            types.Part.from_function_response(
+                name=function_call_part.name,
+                response={"result": function_response},
+            )
+        ],
+    )
+
+# Main execution
 
 if __name__ == "__main__":
     main()
