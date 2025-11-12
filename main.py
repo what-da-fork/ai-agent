@@ -131,6 +131,9 @@ def main():
             print(f"Error during content generation: {e}")
             sys.exit(1)
 
+        # keep chat context
+        messages.append(response.candidates[0].content)
+
         if verbose:
             print(f"User prompt: {prompt}")
             print("Prompt tokens:", response.usage_metadata.prompt_token_count)
@@ -148,8 +151,9 @@ def main():
                 if function_result.parts[0].function_response.response and verbose:
                     print(f"-> {function_result.parts[0].function_response.response}")
 
+            # continue to next iteration so Gemini sees tool outputs
             i += 1
-            continue  # re-query model with tool outputs
+            continue  
 
         # no more function calls — final response
         if response.text:
@@ -158,6 +162,12 @@ def main():
 
         if not response.function_calls:
             print(response.text)
+
+        # always increment iteration counter
+        i += 1
+        
+    else:
+        print(f"Reached maximum iteration limit ({max_iterations}) without final text response.")
 
 # Main execution
 if __name__ == "__main__":
