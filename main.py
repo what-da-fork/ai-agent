@@ -44,64 +44,33 @@ When a user asks a question or makes a request, make a function call plan. You c
 - Write or overwrite files
 
 All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
+
+First, analyze the user's request and determine which functions to call. You may need to call multiple functions in sequence to fulfill the user's request. After each function call, you will receive the result which you can use to inform your next steps.
+Determine your working directory by calling get_files_info with directory ".".
+
+Be thorough in your analysis and response.
+
+When analyzing code, ensure you break down how it works and what each part does.
+
+Never incldue code files or their contents directly in your responses unless explicitly asked by the user.
 """
 
-# Initialize verbose flag
-verbose = False
-
-# Parse arguments
-if "--verbose" in sys.argv:
-    verbose = True
+# CLI args
+verbose = "--verbose" in sys.argv
+if verbose:
     sys.argv.remove("--verbose")
 
 if len(sys.argv) <= 1:
     print("please provide a prompt")
     sys.exit(1)
 
-prompt = sys.argv[1]  
+prompt = sys.argv[1]
 
-messages = [
-    types.Content(role="user", parts=[types.Part(text=prompt)]),
-]
-
-response = client.models.generate_content(
-    model='gemini-2.0-flash-001', 
-    contents=messages,
-    config=types.GenerateContentConfig(
-        tools=[available_functions], system_instruction=system_prompt
-                                       )
-)
-
-def main():
-    if verbose:
-        print(f"User prompt: {prompt}")
-        print("Prompt tokens:", response.usage_metadata.prompt_token_count)
-        print("Response tokens:", response.usage_metadata.candidates_token_count)
-    if response.function_calls:
-        for function_call_part in response.function_calls:
-            print(f"Function call representation: {repr(function_call_part)}")
-
-            function_call_result = call_function(function_call_part, verbose=verbose)
-            if not function_call_result.parts[0].function_response.response:
-                raise Exception("Fatal - No function response received.")
-            if function_call_result.parts[0].function_response.response and verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
-
-            if function_call_part.name == "get_files_info":
-                raw_dir = function_call_part.args.get("directory")
-                directory = raw_dir.strip() if isinstance(raw_dir, str) and raw_dir.strip() else "."
-                function_response = get_files_info(
-                    working_directory=os.path.abspath(BASE_PATH),
-                    directory=directory
-                )
-                print(f"Function response:\n{function_response}\n")
-    if not response.function_calls:
-        print(response.text)
-
+# function to call functions
 def call_function(function_call_part, verbose=False):
     if verbose:
         print(f"Calling function: {function_call_part.name}({function_call_part.args})")
-    if not verbose:
+    else:
         print(f" - Calling function: {function_call_part.name}")
 
     try:
@@ -118,9 +87,9 @@ def call_function(function_call_part, verbose=False):
         )
 
     try:
-        function_response = called_function(
+        result = called_function(
             working_directory=os.path.abspath(BASE_PATH),
-            **function_call_part.args
+            **function_call_part.args,
         )
     except Exception as e:
         return types.Content(
@@ -132,18 +101,64 @@ def call_function(function_call_part, verbose=False):
                 )
             ],
         )
-    
+
     return types.Content(
         role="tool",
         parts=[
             types.Part.from_function_response(
                 name=function_call_part.name,
-                response={"result": function_response},
+                response={"result": result},
             )
         ],
     )
 
-# Main execution
+def main():
+    messages = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+    max_iterations = 20
+    i = 0
 
+    while i < max_iterations:
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-001",
+                contents=messages,
+                config=types.GenerateContentConfig(
+                    tools=[available_functions],
+                    system_instruction=system_prompt,
+                ),
+            )
+        except Exception as e:
+            print(f"Error during content generation: {e}")
+            sys.exit(1)
+
+        if verbose:
+            print(f"User prompt: {prompt}")
+            print("Prompt tokens:", response.usage_metadata.prompt_token_count)
+            print("Response tokens:", response.usage_metadata.candidates_token_count)
+
+        # handle function calls
+        if response.function_calls:
+            for call in response.function_calls:
+                print(f"Function call representation: {repr(call)}")
+                function_result = call_function(call, verbose=verbose)
+                messages.append(function_result)
+
+                if not function_result.parts[0].function_response.response:
+                    raise Exception("Fatal - No function response received.")
+                if function_result.parts[0].function_response.response and verbose:
+                    print(f"-> {function_result.parts[0].function_response.response}")
+
+            i += 1
+            continue  # re-query model with tool outputs
+
+        # no more function calls — final response
+        if response.text:
+            print(response.text)
+            break # exit loop if we have a text response
+
+        if not response.function_calls:
+            print(response.text)
+
+# Main execution
 if __name__ == "__main__":
     main()
